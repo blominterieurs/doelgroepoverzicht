@@ -6,7 +6,7 @@
  *   Uitvoeren als: Ik      Wie heeft toegang: Iedereen
  *
  * Tabbladen in de Sheet:
- *   Toegang     Naam | Wachtwoord | Rol (beheerder of invuller)
+ *   Toegang     Naam | Wachtwoord | Rol (beheerder of invuller) | Persoonlijke link | E-mail (Blom-account)
  *   Antwoorden  Id | Naam | Bijgewerkt | Beantwoord | Klaar | Data (JSON, verdeeld over kolom F en verder)
  *   Config      Sleutel | Waarde (JSON)
  *
@@ -40,6 +40,42 @@ function who_(code) {
     }
   }
   return null;
+}
+
+/* Inloggen met het Blom-account (Supabase, dezelfde inlog als de startpagina en de Collectiekeuze).
+   Het script vraagt Supabase bij wie het inlogtoken hoort en zoekt dat e-mailadres op in kolom E (E-mail) van Toegang. */
+const SUPABASE_URL = 'https://vvvsvgtmslsjegbxppjf.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_NG__lC-SYFruk6q0KO3vsw_adHP5mLa'; // openbare sleutel
+const DOMEIN = '@blominterieurs.nl';
+
+function emailVanToken_(token) {
+  token = String(token || '');
+  if (!token) return null;
+  const cache = CacheService.getScriptCache();
+  const sleutel = 'tok:' + Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, token));
+  const bekend = cache.get(sleutel);
+  if (bekend) return bekend;
+  const r = UrlFetchApp.fetch(SUPABASE_URL + '/auth/v1/user', {
+    headers: { apikey: SUPABASE_KEY, Authorization: 'Bearer ' + token }, muteHttpExceptions: true
+  });
+  if (r.getResponseCode() !== 200) return null;
+  const email = String((JSON.parse(r.getContentText()) || {}).email || '').trim().toLowerCase();
+  if (!email || email.slice(-DOMEIN.length) !== DOMEIN) return null;
+  cache.put(sleutel, email, 300); // 5 minuten, zodat niet elke klik naar Supabase gaat
+  return email;
+}
+
+function whoToken_(token) {
+  const email = emailVanToken_(token);
+  if (!email) return { fout: 'wachtwoord' };
+  const v = sh_('Toegang').getDataRange().getValues();
+  for (let i = 1; i < v.length; i++) {
+    const name = String(v[i][0] || '').trim();
+    if (name && String(v[i][4] || '').trim().toLowerCase() === email) {
+      return { me: { name: name, id: slug_(name), role: /beheer/i.test(String(v[i][2])) ? 'admin' : 'invuller' } };
+    }
+  }
+  return { fout: 'onbekend' };
 }
 
 function readDocs_() {
@@ -118,7 +154,14 @@ function state_(me) {
 }
 
 function handle_(req) {
-  const me = who_(req.code);
+  let me = null;
+  if (req.token) {
+    const w = whoToken_(req.token);
+    if (!w.me) return { ok: false, error: w.fout };
+    me = w.me;
+  } else {
+    me = who_(req.code);
+  }
   if (!me) return { ok: false, error: 'wachtwoord' };
   const a = req.action || 'state';
   if (a === 'state') return Object.assign({ ok: true }, state_(me));
@@ -170,7 +213,7 @@ function doGet(e) {
  */
 function inrichten() {
   const ss = SpreadsheetApp.getActive();
-  const BASE = 'https://blominteriors.github.io/doelgroepoverzicht/#c=';
+  const BASE = 'https://blominterieurs.github.io/doelgroepoverzicht/#c=';
   const mensen = [['Remy', 'beheerder'], ['Jan', 'beheerder'], ['Johan', 'invuller'], ['Andreas', 'invuller'], ['Antoni', 'invuller'],
     ['Nicole', 'invuller'], ['Ilse', 'invuller'], ['Natasha', 'invuller'], ['Chantal', 'invuller'], ['Yvonne', 'invuller'], ['Marion', 'invuller']];
 

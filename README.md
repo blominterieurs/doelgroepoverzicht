@@ -2,7 +2,7 @@
 
 Enquête per label en segment voor de Blom doelgroepmodellen, met A3-posters per label.
 
-* **Enquête:** https://blominteriors.github.io/doelgroepoverzicht/
+* **Enquête:** https://blominterieurs.github.io/doelgroepoverzicht/
 * **Opslag:** een afgeschermde Google Sheet ("Blom Doelgroepoverzicht 2026 – antwoorden"), via een Apps Script.
 
 Iedere invuller krijgt een persoonlijke link met een eigen wachtwoord. Invullers zien alleen hun eigen antwoorden en posters; beheerders zien alles.
