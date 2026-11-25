@@ -65,9 +65,27 @@ function emailVanToken_(token) {
   return email;
 }
 
+/* Toegang per persoon staat in het gebruikersbeheer op de Blom startpagina (app 'doelgroepoverzicht').
+   De database beantwoordt de vraag met het inlogtoken van de persoon zelf. */
+function magApp_(token) {
+  const cache = CacheService.getScriptCache();
+  const sleutel = 'app:' + Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, token));
+  const bekend = cache.get(sleutel);
+  if (bekend) return bekend === 'ja';
+  const r = UrlFetchApp.fetch(SUPABASE_URL + '/rest/v1/rpc/mag_app', {
+    method: 'post', contentType: 'application/json', payload: JSON.stringify({ p_app: 'doelgroepoverzicht' }),
+    headers: { apikey: SUPABASE_KEY, Authorization: 'Bearer ' + token }, muteHttpExceptions: true
+  });
+  if (r.getResponseCode() !== 200) return false;
+  const mag = r.getContentText().trim() === 'true';
+  cache.put(sleutel, mag ? 'ja' : 'nee', 300);
+  return mag;
+}
+
 function whoToken_(token) {
   const email = emailVanToken_(token);
   if (!email) return { fout: 'wachtwoord' };
+  if (!magApp_(token)) return { fout: 'geen app' };
   const v = sh_('Toegang').getDataRange().getValues();
   for (let i = 1; i < v.length; i++) {
     const name = String(v[i][0] || '').trim();

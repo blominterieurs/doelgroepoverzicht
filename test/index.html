@@ -159,10 +159,18 @@ window.BLOM_STANDALONE = true;
     document.body.append(o); setTimeout(() => o.querySelector("input").focus(), 50);
   }
   /* geeft true, of (bij inloggen met het Blom-account) een melding waarom het niet lukte */
+  /* toegang per persoon staat in het gebruikersbeheer op de startpagina (app "doelgroepoverzicht").
+     Lukt de controle zelf niet, dan beslist het Apps Script. */
+  async function magApp() {
+    try { const { data, error } = await sb.rpc("mag_app", { p_app: "doelgroepoverzicht" }); return error ? true : data === true; }
+    catch (e) { return true; }
+  }
   async function tryLogin(blom) {
+    if (blom && !(await magApp())) return "Je account heeft geen toegang tot het Doelgroepoverzicht. Vraag toegang aan via het gebruikersbeheer op de startpagina.";
     try { const j = await call({ action: "state" }); me = j.me; applyState(j); bar(); resolveReady(); startPolling(); return true; }
     catch (e) {
       if (!blom) return false;
+      if (e.code === "geen app") return "Je account heeft geen toegang tot het Doelgroepoverzicht. Vraag toegang aan via het gebruikersbeheer op de startpagina.";
       return e.code === "onbekend"
         ? "Je Blom-account staat nog niet in de lijst van het Doelgroepoverzicht. Vraag Remy om je e-mailadres toe te voegen."
         : "Inloggen lukte niet. Probeer het opnieuw of herlaad de pagina.";

@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,nofollow">
 <script src="config.js"></script>
+<script src="js/vendor/supabase-2.118.0.js"></script>
 <style>.sabar{display:flex;justify-content:flex-end;align-items:center;gap:12px;padding:8px 16px;font:13px "Plus Jakarta Sans",system-ui,sans-serif;color:#2E2E2E;background:#fff;border-bottom:1px solid #E1E3E4}
 .sabar button{font:inherit;background:none;border:1px solid #2E2E2E;border-radius:8px;padding:4px 10px;cursor:pointer;color:inherit}
 .salogin{position:fixed;inset:0;z-index:9999;background:#F4F5F5;display:grid;place-items:center;padding:16px;font-family:"Plus Jakarta Sans",system-ui,sans-serif;color:#2E2E2E}
@@ -12,13 +13,22 @@
 .salogin img{height:64px;justify-self:start}.salogin h1{margin:0;font-size:22px;font-weight:600}.salogin p{margin:0;font-size:14px;line-height:1.5;color:#6B6E70}
 .salogin input{font:inherit;padding:11px 12px;border:1px solid #C9CCCE;border-radius:10px}
 .salogin button{font:inherit;font-weight:600;padding:11px;border-radius:10px;border:none;background:#2E2E2E;color:#fff;cursor:pointer}
-.salogin .saerr{color:#B3261E;min-height:1.2em}</style>
-<script>/* Losse versie: koppelt de enquête aan de Google Sheet via het Apps Script, in plaats van aan Claude. */
+.salogin .saerr{color:#B3261E;min-height:1.2em}.salogin .salink{background:none;color:#2E2E2E;font-weight:400;font-size:13px;text-decoration:underline;padding:0;justify-self:start}
+.salogin a,.sabar a{color:#2E2E2E}
+.sabar a{margin-right:auto}
+</style>
+<script>/* Losse versie: koppelt de enquête aan de Google Sheet via het Apps Script, in plaats van aan Claude.
+   Inloggen: met je Blom-account (dezelfde inlog als de startpagina en de Collectiekeuze op blominterieurs.github.io),
+   of nog met het oude persoonlijke wachtwoord. Het Apps Script controleert het Blom-account bij Supabase. */
 window.BLOM_STANDALONE = true;
 (function () {
   const API = window.BLOM_API;
   const KEY = "blom-doelgroep-code";
-  let code = "";
+  const SB = { url: "https://vvvsvgtmslsjegbxppjf.supabase.co", key: "sb_publishable_NG__lC-SYFruk6q0KO3vsw_adHP5mLa", domein: "@blominterieurs.nl" };
+  const START = "https://blominterieurs.github.io/";
+  const sb = window.supabase ? window.supabase.createClient(SB.url, SB.key, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } }) : null;
+  const isBlom = u => !!(u && u.email && u.email.toLowerCase().endsWith(SB.domein));
+  let code = "", viaBlom = false;
   const h = new URLSearchParams(location.hash.slice(1));
   if (h.get("c")) {
     code = h.get("c").trim();
@@ -32,8 +42,15 @@ window.BLOM_STANDALONE = true;
   const docSubs = {}, collSubs = [];
   const mk = (id, d) => ({ id, exists: !!d, data: () => d, metadata: {} });
 
+  async function token() {
+    if (!sb) return null;
+    const { data } = await sb.auth.getSession();
+    const s = data && data.session;
+    return s && isBlom(s.user) ? s.access_token : null;
+  }
   async function call(req) {
-    const r = await fetch(API, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(Object.assign({ code }, req)) });
+    const auth = viaBlom ? { token: await token() } : { code };
+    const r = await fetch(API, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(Object.assign(auth, req)) });
     const j = await r.json();
     if (!j.ok) { const e = new Error(j.error || "fout"); e.code = j.error === "geen toegang" ? "invalid_argument" : (j.error || "fout"); throw e; }
     return j;
@@ -91,28 +108,73 @@ window.BLOM_STANDALONE = true;
 
   function bar() {
     const b = document.createElement("div"); b.className = "sabar";
-    b.innerHTML = `<span>Ingelogd als <b></b></span><button type="button">Uitloggen</button>`;
+    b.innerHTML = `<a href="${START}">Startpagina</a><span>Ingelogd als <b></b></span><button type="button">Uitloggen</button>`;
     b.querySelector("b").textContent = me.name + (me.role === "admin" ? " (beheerder)" : "");
-    b.querySelector("button").onclick = () => { try { localStorage.removeItem(KEY); } catch (e) {} location.reload(); };
+    b.querySelector("button").onclick = async () => {
+      try { localStorage.removeItem(KEY); } catch (e) {}
+      if (viaBlom && sb) await sb.auth.signOut();
+      location.reload();
+    };
     document.body.prepend(b);
   }
-  function loginScreen(msg) {
+  function loginScreen(msg, oud) {
+    document.querySelectorAll(".salogin").forEach(x => x.remove());
     const o = document.createElement("div"); o.className = "salogin";
-    o.innerHTML = `<form><img alt="Blom" src=""><h1>Doelgroepoverzicht 2026</h1><p>Vul je persoonlijke wachtwoord in. Je hebt het wachtwoord van Remy gekregen.</p>
-      <input type="password" autocomplete="current-password" placeholder="Wachtwoord" aria-label="Wachtwoord" required><button type="submit">Inloggen</button><p class="saerr" role="alert"></p></form>`;
+    o.innerHTML = oud
+      ? `<form><img alt="Blom" src=""><h1>Doelgroepoverzicht 2026</h1><p>Vul je persoonlijke wachtwoord in. Je hebt het wachtwoord van Remy gekregen.</p>
+        <input type="password" autocomplete="current-password" placeholder="Wachtwoord" aria-label="Wachtwoord" required><button type="submit">Inloggen</button><p class="saerr" role="alert"></p>
+        <button type="button" class="salink">Inloggen met je Blom-account</button></form>`
+      : `<form><img alt="Blom" src=""><h1>Doelgroepoverzicht 2026</h1><p>Log in met je Blom-account: hetzelfde e-mailadres en wachtwoord als op de startpagina en in de Collectiekeuze.</p>
+        <input type="email" autocomplete="username" inputmode="email" placeholder="naam${SB.domein}" aria-label="E-mailadres" required>
+        <input type="password" autocomplete="current-password" placeholder="Wachtwoord" aria-label="Wachtwoord" required><button type="submit">Inloggen</button><p class="saerr" role="alert"></p>
+        <p>Nog geen wachtwoord, of vergeten? Ga naar de <a href="${START}">startpagina</a> en vraag daar een inloglink aan.</p>
+        <button type="button" class="salink">Inloggen met je persoonlijke wachtwoord</button></form>`;
     const logo = (typeof LOGO !== "undefined") ? LOGO.care : null; if (logo) o.querySelector("img").src = logo; else o.querySelector("img").remove();
-    o.querySelector(".saerr").textContent = msg || "";
+    const err = o.querySelector(".saerr"), knop = o.querySelector("button[type=submit]");
+    err.textContent = msg || "";
+    o.querySelector(".salink").onclick = () => loginScreen("", !oud);
     o.querySelector("form").onsubmit = async e => {
-      e.preventDefault(); code = o.querySelector("input").value.trim();
-      o.querySelector("button").disabled = true; o.querySelector(".saerr").textContent = "Even controleren…";
-      if (await tryLogin()) { try { localStorage.setItem(KEY, code); } catch (err) {} o.remove(); }
-      else { o.querySelector("button").disabled = false; o.querySelector(".saerr").textContent = "Dit wachtwoord klopt niet. Controleer het wachtwoord of vraag Remy om een nieuw wachtwoord."; }
+      e.preventDefault();
+      knop.disabled = true; err.textContent = "Even controleren…";
+      if (oud) {
+        code = o.querySelector("input").value.trim(); viaBlom = false;
+        if (await tryLogin()) { try { localStorage.setItem(KEY, code); } catch (x) {} o.remove(); return; }
+        knop.disabled = false; err.textContent = "Dit wachtwoord klopt niet. Controleer het wachtwoord of vraag Remy om een nieuw wachtwoord.";
+        return;
+      }
+      const [em, pw] = o.querySelectorAll("input");
+      const email = em.value.trim().toLowerCase();
+      if (!email.endsWith(SB.domein)) { knop.disabled = false; err.textContent = "Alleen adressen eindigend op " + SB.domein + " hebben toegang."; return; }
+      const { error } = await sb.auth.signInWithPassword({ email, password: pw.value });
+      if (error) {
+        knop.disabled = false;
+        err.textContent = /invalid login|credentials/i.test(error.message) ? "E-mailadres of wachtwoord klopt niet." : "Inloggen lukte niet: " + error.message;
+        return;
+      }
+      viaBlom = true;
+      const r = await tryLogin(true);
+      if (r === true) { o.remove(); return; }
+      knop.disabled = false; err.textContent = r;
     };
     document.body.append(o); setTimeout(() => o.querySelector("input").focus(), 50);
   }
-  async function tryLogin() {
+  /* geeft true, of (bij inloggen met het Blom-account) een melding waarom het niet lukte */
+  /* toegang per persoon staat in het gebruikersbeheer op de startpagina (app "doelgroepoverzicht").
+     Lukt de controle zelf niet, dan beslist het Apps Script. */
+  async function magApp() {
+    try { const { data, error } = await sb.rpc("mag_app", { p_app: "doelgroepoverzicht" }); return error ? true : data === true; }
+    catch (e) { return true; }
+  }
+  async function tryLogin(blom) {
+    if (blom && !(await magApp())) return "Je account heeft geen toegang tot het Doelgroepoverzicht. Vraag toegang aan via het gebruikersbeheer op de startpagina.";
     try { const j = await call({ action: "state" }); me = j.me; applyState(j); bar(); resolveReady(); startPolling(); return true; }
-    catch (e) { return false; }
+    catch (e) {
+      if (!blom) return false;
+      if (e.code === "geen app") return "Je account heeft geen toegang tot het Doelgroepoverzicht. Vraag toegang aan via het gebruikersbeheer op de startpagina.";
+      return e.code === "onbekend"
+        ? "Je Blom-account staat nog niet in de lijst van het Doelgroepoverzicht. Vraag Remy om je e-mailadres toe te voegen."
+        : "Inloggen lukte niet. Probeer het opnieuw of herlaad de pagina.";
+    }
   }
   function startPolling() {
     setInterval(async () => {
@@ -122,14 +184,23 @@ window.BLOM_STANDALONE = true;
   }
   document.addEventListener("DOMContentLoaded", async () => {
     if (!API || API.indexOf("http") !== 0) { loginScreen("De koppeling met de Google Sheet is nog niet ingesteld."); return; }
+    // 1. al ingelogd met je Blom-account (bijvoorbeeld via de startpagina)
+    if (await token()) {
+      viaBlom = true;
+      const r = await tryLogin(true);
+      if (r === true) return;
+      viaBlom = false;
+      if (!code) { loginScreen(r); return; }
+    }
+    // 2. oud persoonlijk wachtwoord
     if (code && await tryLogin()) return;
-    loginScreen(code ? "Je wachtwoord werkt niet meer. Vul het opnieuw in." : "");
+    loginScreen(code ? "Je wachtwoord werkt niet meer. Log in met je Blom-account." : "");
   });
 })();
 </script>
 </head>
 <body>
-<title>Blom Doelgroepoverzicht 2026</title>
+<title>TEST · Blom Doelgroepoverzicht 2026</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
